@@ -1,0 +1,125 @@
+pipeline {
+    agent any
+    tools {nodejs "node21.4.0"}
+    environment {
+        DOCKER_HUB_LOGIN = credentials('DockerYataco')
+        GIT_REPOSITORY="https://github.com/WilliamKidefw/bootcamp-devops-2023.git"
+        REGISTRY_DOCKER="wyataco"
+        IMAGE_VOTE="295devops_vote"
+        IMAGE_WORKER="295devops_worker"
+        IMAGE_RESULT="295devops_result"
+        VERSION="v1"
+    }
+    stages {
+        stage("Clone Repository") {
+            steps {
+                sh """
+                    rm -rf bootcamp-devops-2023
+                    git clone -b ejercicio3-despliega $GIT_REPOSITORY
+                    """
+            }
+        }//clone repo
+        stage ("Test"){
+            parallel {
+                stage("App Vote") {
+                    agent{
+                        docker {
+                            image "python:3.11-slim"
+                            args "-u root:root"
+                        }
+                    }
+                    steps {
+                        sh """
+                            if [ -d bootcamp-devops-2023/vote/tests ]; then
+                                cd bootcamp-devops-2023/vote
+                                python --version
+                                python run pytest
+                                cd ..
+                            fi
+                            echo Not exist test unit
+                        """
+                    }
+                }
+                stage("App Worker") {
+                    agent{
+                        docker {
+                            image "mcr.microsoft.com/dotnet/runtime:7.0"
+                            args "-u root:root"
+                        }
+                    }
+                    steps {
+                        sh """
+                            if [ -d bootcamp-devops-2023/worker/tests ]; then
+                                cd bootcamp-devops-2023/worker
+                                cd ..
+                            fi
+                            echo Not exist test unit
+                        """
+                    }
+                }
+                stage("App Result") {
+                    steps {
+                        sh """
+                            if [ -d bootcamp-devops-2023/result/tests ]; then
+                                cd bootcamp-devops-2023/result
+                                npm install
+                                cd ..
+                            fi                            
+                            echo Not exist test unit
+                            """
+                    }
+                }
+            }//parallel
+        }//stage Test
+        stage ("Build"){
+            parallel {
+                stage("App Vote") {
+                    steps {
+                        sh """
+                            cd bootcamp-devops-2023/vote
+                            docker build -t $IMAGE_VOTE:$VERSION .
+                        """
+                    }
+                }
+                stage("App Worker") {
+                    steps {
+                        sh """
+                            cd bootcamp-devops-2023/worker
+                            docker build -t $IMAGE_WORKER:$VERSION .
+                        """
+                    }
+                }
+                stage("App Result") {
+                    steps {
+                        sh """
+                            cd bootcamp-devops-2023/result
+                            docker build -t $IMAGE_RESULT:$VERSION .
+                        """
+                    }
+                }
+            }//parallel
+        }//stage Build
+        stage('Deploy To Hub') {
+            steps {
+               sh '''
+               docker login --username=$DOCKER_HUB_LOGIN_USR --password=$DOCKER_HUB_LOGIN_PSW
+               docker tag $IMAGE_VOTE:$VERSION $REGISTRY_DOCKER/$IMAGE_VOTE:$VERSION
+               docker tag $IMAGE_WORKER:$VERSION $REGISTRY_DOCKER/$IMAGE_WORKER:$VERSION
+               docker tag $IMAGE_RESULT:$VERSION $REGISTRY_DOCKER/$IMAGE_RESULT:$VERSION
+               docker push $REGISTRY_DOCKER/$IMAGE_VOTE:$VERSION
+               docker push $REGISTRY_DOCKER/$IMAGE_WORKER:$VERSION
+               docker push $REGISTRY_DOCKER/$IMAGE_RESULT:$VERSION
+               '''
+            }
+        }
+        // stage('Test Integration') {
+        //     steps {
+        //         sh """
+        //             cd bootcamp-devops-2023/result/tests
+        //             docker build -t $IMAGE_RESULT:test .
+        //             docker run -d $IMAGE_RESULT:test
+        //             """
+        //     }
+        // }
+    }
+}
